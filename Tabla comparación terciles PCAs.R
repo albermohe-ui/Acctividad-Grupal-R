@@ -1,7 +1,12 @@
 ###############################################################
-## ACTIVIDAD 3. PROYECTO TRANSVERSAL EN R
-## Análisis bioestadístico de expresión génica en Los Simpson
+## TABLA COMPARATIVA COMPONENTES PCA POR TERCILES
+
 ###############################################################
+
+#============================================================
+## EMPEZAMOS CON EL BLOQUE DE CREACIÓN DEL PCA: ELIMINAR LUEGO PARA 
+## EL Rmkd
+#=====================================================================
 
 ### ============================================================================
 ### 0. LIMPIEZA DEL ENTORNO, REPRODUCIBILIDAD Y PAQUETES
@@ -66,6 +71,8 @@ library(officer)
 library(broom)
 library(car)
 library(pROC)
+library(flextable)
+
 
 ### ============================================================================
 ### 1. DIRECTORIO DE TRABAJO
@@ -291,145 +298,160 @@ summary(pca_genes)
 
 names(pca_genes)
 
+
+
+#================================================================
+#================================================================
+
+###############################################################
+## TABLA, PROPIAMENTE
+###############################################################
+
+# Ahora se clasificarán los individuos en terciles según su puntuación en PC1, PC2 y PC3. 
+# Posteriormente, se compararán las variables génicas entre terciles utilizando estadísticas 
+# descriptivas (mediana e IQR) y test de Kruskal-Wallis. Esto permite identificar genes cuya 
+# expresión se asocia a los patrones de variabilidad capturados por el PCA.
+
+
 ### ============================================================================
-### 9. VARIANZA EXPLICADA POR LOS COMPONENTES PRINCIPALES
+### 9. CREACIÓN DE TERCILES DEL PCA
 ### ============================================================================
 
-## Extraigo los autovalores, el porcentaje de varianza explicada
-## y la varianza acumulada de cada componente.
+## Aquí cñasificamos cada individuo en “bajo / medio / alto” según su posición en PC1, PC2 y PC3
 
-varianza_pca <- get_eigenvalue(pca_genes)
+## Extraemos los scores del PCA (coordenadas de cada individuo en los componentes)
 
-varianza_pca
+scores_pca <- as.data.frame(pca_genes$x)
 
-## Creo una tabla ordenada con los resultados.
+## Creamos terciles (T1, T2, T3) para cada componente principal
+## Dividimos los datos en 3 grupos según percentiles 33% y 66%
 
-tabla_varianza_pca <- data.frame(
-  Componente = rownames(varianza_pca),
-  Autovalor = varianza_pca$eigenvalue,
-  Varianza_explicada = varianza_pca$variance.percent,
-  Varianza_acumulada = varianza_pca$cumulative.variance.percent
-)
-
-## Redondeo los resultados para facilitar su lectura.
-
-tabla_varianza_pca <- tabla_varianza_pca %>%
+scores_pca <- scores_pca %>%
   mutate(
-    Autovalor = round(Autovalor, 3),
-    Varianza_explicada = round(Varianza_explicada, 2),
-    Varianza_acumulada = round(Varianza_acumulada, 2)
+    
+    PC1_t = cut(
+      PC1,
+      breaks = quantile(PC1, probs = c(0, 1/3, 2/3, 1)),
+      include.lowest = TRUE,
+      labels = c("T1", "T2", "T3")
+    ),
+    
+    PC2_t = cut(
+      PC2,
+      breaks = quantile(PC2, probs = c(0, 1/3, 2/3, 1)),
+      include.lowest = TRUE,
+      labels = c("T1", "T2", "T3")
+    ),
+    
+    PC3_t = cut(
+      PC3,
+      breaks = quantile(PC3, probs = c(0, 1/3, 2/3, 1)),
+      include.lowest = TRUE,
+      labels = c("T1", "T2", "T3")
+    )
   )
 
-tabla_varianza_pca
 
 ### ============================================================================
-### 10. EXTRACCIÓN DE SCORES DE LAS PRIMERAS SEIS COMPONENTES
+### 10. UNIÓN DE DATOS ORIGINALES + TERCILES DEL PCA
 ### ============================================================================
 
-## Extraigo los scores de las primeras seis componentes principales.
+# Usamos expresión génica ORIGINAL (sin transformar) y agrupamos por terciles del PCA
 
-scores_pca <- as.data.frame(
-  pca_genes$x[, 1:6]
+## Nos quedamos solo con los genes + los grupos de PCA
+df_final <- cbind(
+  simpson_df[, genes_simpson],   # datos originales de genes
+  scores_pca[, c("PC1_t", "PC2_t", "PC3_t")]  # terciles
 )
 
-## Reviso las primeras filas de los scores.
 
-head(scores_pca)
+# Conversión explícita de genes a numéricos
+df_final <- df_final %>%
+  mutate(across(all_of(genes_simpson), ~ as.numeric(as.character(.))))
 
-## Añado los scores al dataframe original.
+str(df_final)
 
-simpson_df <- cbind(
-  simpson_df,
-  scores_pca
+### ============================================================================
+### 11. TABLA DESCRIPTIVA - PC1
+### ============================================================================
+
+tabla_PC1 <- df_final %>%
+  
+  ## Eliminamos otros grupos para que no interfieran
+  
+  select(-PC2_t, -PC3_t) %>%
+  
+  ## Creamos tabla
+  
+  tbl_summary(
+    by = PC1_t,   # agrupamos por terciles
+    
+    type = all_of(genes_simpson) ~ "continuous",
+    
+    ## Usamos mediana + rango intercuartílico
+    ## (porque la mayoría de genes no siguen distribución normal)
+    
+    statistic = all_continuous() ~ "{median} ({p25} - {p75})",
+    
+    ## Número de decimales
+    
+    digits = all_continuous() ~ 1
+  ) %>%
+  
+  ## Añadimos comparación estadística (Kruskal-Wallis)
+  
+  add_p(test = all_continuous() ~ "kruskal.test")
+
+
+
+### ============================================================================
+### 12. TABLA DESCRIPTIVA - PC2
+### ============================================================================
+
+tabla_PC2 <- df_final %>%
+  
+  select(-PC1_t, -PC3_t) %>%
+  
+  tbl_summary(
+    by = PC2_t,
+    type = all_of(genes_simpson) ~ "continuous",
+    statistic = all_continuous() ~ "{median} ({p25} - {p75})",
+    digits = all_continuous() ~ 1
+  ) %>%
+  
+  add_p(test = all_continuous() ~ "kruskal.test")
+
+
+### ============================================================================
+### 13. TABLA DESCRIPTIVA - PC3
+### ============================================================================
+
+tabla_PC3 <- df_final %>%
+  
+  select(-PC1_t, -PC2_t) %>%
+  
+  tbl_summary(
+    by = PC3_t,
+    type = all_of(genes_simpson) ~ "continuous",
+    statistic = all_continuous() ~ "{median} ({p25} - {p75})",
+    digits = all_continuous() ~ 1
+  ) %>%
+  
+  add_p(test = all_continuous() ~ "kruskal.test")
+
+
+### ============================================================================
+### 14. COMBINAR TABLAS
+### ============================================================================
+
+tabla_combinada <- tbl_merge(
+  tbls = list(tabla_PC1, tabla_PC2, tabla_PC3),
+  tab_spanner = c("**PC1**", "**PC2**", "**PC3**")
 )
 
-## Compruebo que PC1 a PC6 se hayan añadido correctamente.
-
-names(simpson_df)
 
 ### ============================================================================
-### 11. GRÁFICO DE VARIANZA EXPLICADA
+### 15. MOSTRAR TABLA COMBINADA
 ### ============================================================================
 
-## Represento el porcentaje de varianza explicado por cada componente principal.
-## Este gráfico me ayuda a identificar qué componentes concentran más información.
-
-grafico_varianza <- fviz_eig(
-  pca_genes,
-  addlabels = TRUE,
-  ylim = c(0, 100)
-) +
-  ggtitle("Varianza explicada por los componentes principales") +
-  theme_minimal()
-
-grafico_varianza
-
-### ============================================================================
-### 12. COORDENADAS, COS2 Y CONTRIBUCIONES DE LAS VARIABLES
-### ============================================================================
-
-## Extraigo las coordenadas, la calidad de representación y
-## las contribuciones de las variables génicas en el PCA.
-
-variables_pca <- get_pca_var(pca_genes)
-
-## Reviso las coordenadas de los genes.
-
-head(variables_pca$coord)
-
-## Reviso la calidad de representación de los genes.
-
-head(variables_pca$cos2)
-
-## Reviso la contribución de los genes a los componentes.
-
-head(variables_pca$contrib)
-
-### ============================================================================
-### 13. VISUALIZACIÓN DE VARIABLES SEGÚN COS2
-### ============================================================================
-
-## Represento las variables génicas en el espacio de PC1 y PC2.
-## El color indica la calidad de representación de cada variable.
-
-grafico_variables_cos2 <- fviz_pca_var(
-  pca_genes,
-  axes = c(1, 2),
-  col.var = "cos2",
-  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
-  repel = TRUE
-) +
-  ggtitle("Variables génicas según su calidad de representación") +
-  theme_minimal()
-
-grafico_variables_cos2
-
-### ============================================================================
-### 14. CONTRIBUCIÓN DE LOS GENES A LOS COMPONENTES
-### ============================================================================
-
-## Muestro los genes que más contribuyen a la primera componente.
-
-contribucion_pc1 <- fviz_contrib(
-  pca_genes,
-  choice = "var",
-  axes = 1,
-  top = 15
-) +
-  ggtitle("Contribución de los genes a PC1") +
-  theme_minimal()
-
-contribucion_pc1
-
-## Muestro los genes que más contribuyen a la segunda componente.
-
-contribucion_pc2 <- fviz_contrib(
-  pca_genes,
-  choice = "var",
-  axes = 2,
-  top = 15
-) +
-  ggtitle("Contribución de los genes a PC2") +
-  theme_minimal()
-
-contribucion_pc2
+tabla_combinada

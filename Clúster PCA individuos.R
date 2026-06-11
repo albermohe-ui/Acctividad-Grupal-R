@@ -1,7 +1,11 @@
 ###############################################################
-## ACTIVIDAD 3. PROYECTO TRANSVERSAL EN R
-## Análisis bioestadístico de expresión génica en Los Simpson
+## CLUSTERING (3) PCA DE INDIVIDUOS
 ###############################################################
+
+#============================================================
+## EMPEZAMOS CON EL BLOQUE DE CREACIÓN DEL PCA: ELIMINAR LUEGO PARA 
+## EL Rmkd
+#=====================================================================
 
 ### ============================================================================
 ### 0. LIMPIEZA DEL ENTORNO, REPRODUCIBILIDAD Y PAQUETES
@@ -66,6 +70,8 @@ library(officer)
 library(broom)
 library(car)
 library(pROC)
+library(flextable)
+
 
 ### ============================================================================
 ### 1. DIRECTORIO DE TRABAJO
@@ -291,145 +297,62 @@ summary(pca_genes)
 
 names(pca_genes)
 
+
+#================================================================
+#================================================================
+
+###############################################################
+## CLUSTERING, PROPIAMENTE
+###############################################################
+
+## El análisis de clustering basado en los tres primeros componentes principales identificó 
+# tres grupos de individuos con perfiles de expresión diferenciados, mostrando separación 
+# principalmente a lo largo del eje PC1
+
+
+
+# Ahora vamos a agrupar individuos, no genes 
+
 ### ============================================================================
-### 9. VARIANZA EXPLICADA POR LOS COMPONENTES PRINCIPALES
+### 1. SCORES DEL PCA (INDIVIDUOS)
 ### ============================================================================
 
-## Extraigo los autovalores, el porcentaje de varianza explicada
-## y la varianza acumulada de cada componente.
+# Extraemos los scores de los individuos Simpson
 
-varianza_pca <- get_eigenvalue(pca_genes)
+scores_ind <- as.data.frame(pca_genes$x[, 1:3])
 
-varianza_pca
 
-## Creo una tabla ordenada con los resultados.
+### ============================================================================
+### 2. CLUSTERING DE INDIVIDUOS
+### ============================================================================
 
-tabla_varianza_pca <- data.frame(
-  Componente = rownames(varianza_pca),
-  Autovalor = varianza_pca$eigenvalue,
-  Varianza_explicada = varianza_pca$variance.percent,
-  Varianza_acumulada = varianza_pca$cumulative.variance.percent
-)
+# Agrupamos por el método k-means, indicando tres centros (grupos)
 
-## Redondeo los resultados para facilitar su lectura.
+set.seed(123)
 
-tabla_varianza_pca <- tabla_varianza_pca %>%
-  mutate(
-    Autovalor = round(Autovalor, 3),
-    Varianza_explicada = round(Varianza_explicada, 2),
-    Varianza_acumulada = round(Varianza_acumulada, 2)
+kmeans_ind <- kmeans(scores_ind, centers = 3)
+
+## Añadimos cluster
+
+scores_ind$cluster <- as.factor(kmeans_ind$cluster)
+
+
+### ============================================================================
+### 3. VISUALIZACIÓN
+### ============================================================================
+
+
+ggplot(scores_ind, aes(x = PC1, y = PC2, color = cluster)) +
+  
+  geom_point(size = 3) +
+  
+  stat_ellipse(level = 0.95, linewidth = 1) +   # 🔥 elipses
+  
+  theme_minimal() +
+  
+  labs(
+    title = "Clustering de individuos basado en PCA",
+    x = "PC1",
+    y = "PC2",
+    color = "Cluster"
   )
-
-tabla_varianza_pca
-
-### ============================================================================
-### 10. EXTRACCIÓN DE SCORES DE LAS PRIMERAS SEIS COMPONENTES
-### ============================================================================
-
-## Extraigo los scores de las primeras seis componentes principales.
-
-scores_pca <- as.data.frame(
-  pca_genes$x[, 1:6]
-)
-
-## Reviso las primeras filas de los scores.
-
-head(scores_pca)
-
-## Añado los scores al dataframe original.
-
-simpson_df <- cbind(
-  simpson_df,
-  scores_pca
-)
-
-## Compruebo que PC1 a PC6 se hayan añadido correctamente.
-
-names(simpson_df)
-
-### ============================================================================
-### 11. GRÁFICO DE VARIANZA EXPLICADA
-### ============================================================================
-
-## Represento el porcentaje de varianza explicado por cada componente principal.
-## Este gráfico me ayuda a identificar qué componentes concentran más información.
-
-grafico_varianza <- fviz_eig(
-  pca_genes,
-  addlabels = TRUE,
-  ylim = c(0, 100)
-) +
-  ggtitle("Varianza explicada por los componentes principales") +
-  theme_minimal()
-
-grafico_varianza
-
-### ============================================================================
-### 12. COORDENADAS, COS2 Y CONTRIBUCIONES DE LAS VARIABLES
-### ============================================================================
-
-## Extraigo las coordenadas, la calidad de representación y
-## las contribuciones de las variables génicas en el PCA.
-
-variables_pca <- get_pca_var(pca_genes)
-
-## Reviso las coordenadas de los genes.
-
-head(variables_pca$coord)
-
-## Reviso la calidad de representación de los genes.
-
-head(variables_pca$cos2)
-
-## Reviso la contribución de los genes a los componentes.
-
-head(variables_pca$contrib)
-
-### ============================================================================
-### 13. VISUALIZACIÓN DE VARIABLES SEGÚN COS2
-### ============================================================================
-
-## Represento las variables génicas en el espacio de PC1 y PC2.
-## El color indica la calidad de representación de cada variable.
-
-grafico_variables_cos2 <- fviz_pca_var(
-  pca_genes,
-  axes = c(1, 2),
-  col.var = "cos2",
-  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
-  repel = TRUE
-) +
-  ggtitle("Variables génicas según su calidad de representación") +
-  theme_minimal()
-
-grafico_variables_cos2
-
-### ============================================================================
-### 14. CONTRIBUCIÓN DE LOS GENES A LOS COMPONENTES
-### ============================================================================
-
-## Muestro los genes que más contribuyen a la primera componente.
-
-contribucion_pc1 <- fviz_contrib(
-  pca_genes,
-  choice = "var",
-  axes = 1,
-  top = 15
-) +
-  ggtitle("Contribución de los genes a PC1") +
-  theme_minimal()
-
-contribucion_pc1
-
-## Muestro los genes que más contribuyen a la segunda componente.
-
-contribucion_pc2 <- fviz_contrib(
-  pca_genes,
-  choice = "var",
-  axes = 2,
-  top = 15
-) +
-  ggtitle("Contribución de los genes a PC2") +
-  theme_minimal()
-
-contribucion_pc2
