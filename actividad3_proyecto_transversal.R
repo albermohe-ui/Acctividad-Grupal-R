@@ -66,6 +66,7 @@ library(officer)
 library(broom)
 library(car)
 library(pROC)
+library(flextable)
 
 ### ============================================================================
 ### 1. DIRECTORIO DE TRABAJO
@@ -291,24 +292,25 @@ summary(pca_genes)
 
 names(pca_genes)
 
+
 ### ============================================================================
-### 9. VARIANZA EXPLICADA POR LOS COMPONENTES PRINCIPALES
+### 9. VARIANZA EXPLICADA Y TABLA PCA COMPONENTES Y R2
 ### ============================================================================
 
 ## Extraigo los autovalores, el porcentaje de varianza explicada
-## y la varianza acumulada de cada componente.
+## y la varianza acumulada de cada componente principal.
 
 varianza_pca <- get_eigenvalue(pca_genes)
 
 varianza_pca
 
-## Creo una tabla ordenada con los resultados.
+## Creo una tabla completa con la información del PCA.
 
 tabla_varianza_pca <- data.frame(
   Componente = rownames(varianza_pca),
   Autovalor = varianza_pca$eigenvalue,
-  Varianza_explicada = varianza_pca$variance.percent,
-  Varianza_acumulada = varianza_pca$cumulative.variance.percent
+  R2 = varianza_pca$variance.percent,
+  R2_acumulado = varianza_pca$cumulative.variance.percent
 )
 
 ## Redondeo los resultados para facilitar su lectura.
@@ -316,11 +318,45 @@ tabla_varianza_pca <- data.frame(
 tabla_varianza_pca <- tabla_varianza_pca %>%
   mutate(
     Autovalor = round(Autovalor, 3),
-    Varianza_explicada = round(Varianza_explicada, 2),
-    Varianza_acumulada = round(Varianza_acumulada, 2)
+    R2 = round(R2, 2),
+    R2_acumulado = round(R2_acumulado, 2)
   )
 
 tabla_varianza_pca
+
+## Creo la tabla solicitada con las primeras seis componentes.
+
+tabla_pca_componentes_6 <- tabla_varianza_pca %>%
+  slice(1:6) %>%
+  select(
+    Componente,
+    R2
+  )
+
+tabla_pca_componentes_6
+
+## Convierto la tabla a flextable para mejorar su presentación.
+
+tabla_componentes_flex <- flextable(tabla_pca_componentes_6) %>%
+  autofit() %>%
+  fontsize(size = 10, part = "all")
+
+tabla_componentes_flex
+
+## Guardo la tabla como imagen PNG.
+
+save_as_image(
+  tabla_componentes_flex,
+  path = "tabla_pca_componentes_R2.png"
+)
+
+## También la guardo como CSV para poder compartir los datos en Git.
+
+write.csv(
+  tabla_pca_componentes_6,
+  "tabla_pca_componentes_R2.csv",
+  row.names = FALSE
+)
 
 ### ============================================================================
 ### 10. EXTRACCIÓN DE SCORES DE LAS PRIMERAS SEIS COMPONENTES
@@ -365,11 +401,11 @@ grafico_varianza <- fviz_eig(
 grafico_varianza
 
 ### ============================================================================
-### 12. COORDENADAS, COS2 Y CONTRIBUCIONES DE LAS VARIABLES
+### 12. COORDENADAS, COS2, CONTRIBUCIONES Y TABLA PCA CARGAS
 ### ============================================================================
 
-## Extraigo las coordenadas, la calidad de representación y
-## las contribuciones de las variables génicas en el PCA.
+## Extraigo las coordenadas, la calidad de representación
+## y las contribuciones de las variables génicas en el PCA.
 
 variables_pca <- get_pca_var(pca_genes)
 
@@ -381,9 +417,63 @@ head(variables_pca$coord)
 
 head(variables_pca$cos2)
 
-## Reviso la contribución de los genes a los componentes.
+## Reviso las contribuciones de los genes.
 
 head(variables_pca$contrib)
+
+## Convierto las coordenadas de las variables en una tabla.
+## Estas coordenadas representan las cargas de cada gen.
+
+tabla_pca_cargas <- as.data.frame(variables_pca$coord) %>%
+  tibble::rownames_to_column("Variable") %>%
+  select(
+    Variable,
+    Dim.1,
+    Dim.2,
+    Dim.3,
+    Dim.4,
+    Dim.5,
+    Dim.6
+  ) %>%
+  rename(
+    PC1 = Dim.1,
+    PC2 = Dim.2,
+    PC3 = Dim.3,
+    PC4 = Dim.4,
+    PC5 = Dim.5,
+    PC6 = Dim.6
+  ) %>%
+  mutate(
+    across(
+      PC1:PC6,
+      ~ round(.x, 3)
+    )
+  )
+
+tabla_pca_cargas
+
+## Convierto la tabla a flextable para mejorar su presentación.
+
+tabla_cargas_flex <- flextable(tabla_pca_cargas) %>%
+  autofit() %>%
+  fontsize(size = 8, part = "all")
+
+tabla_cargas_flex
+
+## Guardo la tabla como imagen PNG.
+
+save_as_image(
+  tabla_cargas_flex,
+  path = "tabla_pca_cargas.png"
+)
+
+## También la guardo como CSV para compartirla y reutilizarla.
+
+write.csv(
+  tabla_pca_cargas,
+  "tabla_pca_cargas.csv",
+  row.names = FALSE
+)
 
 ### ============================================================================
 ### 13. VISUALIZACIÓN DE VARIABLES SEGÚN COS2
