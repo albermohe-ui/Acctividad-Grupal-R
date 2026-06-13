@@ -2,7 +2,12 @@
 title: "Resolución Actividad 3 máster Bioinformática UNIR (2026)"
 author: "Equipo R"
 date: "`r Sys.Date()`"
-output: html_document
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    theme: flatly
 ---
 
 
