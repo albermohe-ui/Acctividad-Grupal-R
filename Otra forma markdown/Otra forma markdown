@@ -213,26 +213,18 @@ Como resultado, se obtiene un conjunto de datos limpio y estructurado, a partir 
 ```{r Tabla datos crudos}
 
 
-# ===============================
-# 1. ELIMINAR VARIABLES INNECESARIAS
-# ===============================
-
-datos <- simpson_df %>%
-  select(-...1, -nombre, -orden)
-
+```{r Tabla datos crudos}
 
 # ===============================
-# 2. IDENTIFICACIÓN AUTOMÁTICA DE GENES
+# 3. ELIMINAR VARIABLES INNECESARIAS
 # ===============================
 
-# Detecta variables con nombres en mayúsculas (genes)
-
-genes <- names(datos) %>%
-  grep("^[A-Z0-9]+$", ., value = TRUE)
+simpson_df <- simpson_df %>%
+  select(-X, -nombre, -orden)
 
 
 # ===============================
-# 3. VARIABLES CONTINUAS EXTRA
+# 5. VARIABLES CONTINUAS EXTRA
 # ===============================
 
 # Variables que deben tratarse como numéricas aunque parezcan categóricas
@@ -246,14 +238,14 @@ vars_continuas_extra <- c(
 
 
 # ===============================
-# 4. LIMPIEZA GLOBAL DEL DATASET
+# 6. LIMPIEZA GLOBAL DEL DATASET
 # ===============================
 
-datos <- datos %>%
+simpson_df <- simpson_df %>%
   
   # Limpieza general de texto
   mutate(across(where(is.character), ~trimws(.))) %>%      # elimina espacios
-  mutate(across(where(is.character), ~na_if(., ""))) %>%   # elimina NA
+  mutate(across(where(is.character), ~na_if(., ""))) %>%   # "" a NA
   
   
   # Corrección de variables clave
@@ -298,7 +290,7 @@ datos <- datos %>%
   
   
   # Conversión a numérico de genes y variables continuas especiales
-  mutate(across(all_of(c(genes, vars_continuas_extra)), as.numeric)) %>%
+  mutate(across(all_of(c(genes_simpson, vars_continuas_extra)), as.numeric)) %>%
   
   
   # Conversión correcta a factor de variables categóricas
@@ -319,18 +311,18 @@ datos <- datos %>%
 
 
 # ===============================
-# 5. IDENTIFICAR VARIABLES NUMÉRICAS CLÍNICAS
+# 7. IDENTIFICAR VARIABLES NUMÉRICAS CLÍNICAS
 # ===============================
 
-numeric_vars <- datos %>%
+numeric_vars <- simpson_df %>%
   select(where(is.numeric))
 
 numeric_vars_no_genes <- numeric_vars %>%
-  select(-all_of(genes))
+  select(-all_of(genes_simpson))
 
 
 # ===============================
-# 6. TEST DE NORMALIDAD (Shapiro-Wilk)
+# 8. TEST DE NORMALIDAD (Shapiro-Wilk)
 # ===============================
 
 check_normality <- function(x) {
@@ -356,21 +348,21 @@ non_normal_vars <- setdiff(names(numeric_vars_no_genes), normal_vars)
 
 
 # ===============================
-# 7. TABLA DESCRIPTIVA FINAL
+# 9. TABLA DESCRIPTIVA FINAL
 # ===============================
 
-tabla <- datos %>%
+tabla <- simpson_df %>%
   tbl_summary(
     
     # Forzar tipo continuo en genes y variables mal interpretadas
     type = list(
-      all_of(c(genes, vars_continuas_extra)) ~ "continuous"
+      all_of(c(genes_simpson, vars_continuas_extra)) ~ "continuous"
     ),
     
     
     # Estadísticos personalizados
     statistic = list(
-      all_of(genes) ~ "{median} ({p25}, {p75})",
+      all_of(genes_simpson) ~ "{median} ({p25}, {p75})",
       all_of(normal_vars) ~ "{mean} ({sd})",
       all_of(non_normal_vars) ~ "{median} ({p25}, {p75})",
       all_categorical() ~ "{n} ({p}%)"
@@ -387,7 +379,7 @@ tabla <- datos %>%
 
 
 # ===============================
-# 8. MOSTRAR RESULTADO
+# 10. MOSTRAR RESULTADO
 # ===============================
 
 tabla
@@ -775,6 +767,63 @@ contribucion_pc2 <- fviz_contrib(
 contribucion_pc2
 ```
 
+## Heatmap correlaciones de Spearman
+
+Se donstruye un heatmap con las correlaciones de Spearman entre las variables génicas y los primeras seis componentes principales, con el objetivo de observar posibles asociaciones entre genes o grupos de genes y los componentes principales. 
+
+```{r Heatmap Spearman}
+# Matriz combinada genes + PCs
+mat <- cbind(datos_genes, pca_genes$x[, 1:6])
+cor_mat <- cor(mat, method = "spearman", use = "pairwise.complete.obs")
+
+# Visualizar Heatmap
+
+pheatmap(
+  cor_mat,
+  clustering_method = "ward.D2",
+  main = "Heatmap correlaciones Spearman (genes + PCs)"
+)
+
+```
+
+## Interpretación del Heatmap de correlaciones de Spearman
+
+El análisis de correlaciones de Spearman entre genes y componentes principales muestra patrones diferenciados de asociación entre la expresión génica y los ejes de variabilidad capturados por el PCA.
+
+### 1. Genes fuertemente asociados a PC2
+
+Los genes CADM2 y NTRK2 presentan correlaciones positivas moderadas-altas con PC2 (ρ entre 0.5 y 1).
+
+Esto indica que PC2 está fuertemente influido por la variación conjunta de estos genes. Ambos podrían formar parte de un mismo eje funcional o biológico y sugiere un posible módulo de coexpresión relacionado con ese componente.
+
+### 2. Genes asociados a PC3
+
+Los genes CREBRF y UBR2 muestran correlaciones positivas elevadas con PC3 (ρ entre 0.5 y 1).
+
+Esto indica que PC3 recoge un patrón de expresión asociado a estos genes. Podría representar una vía biológica diferente a la capturada por PC2 y refuerza la idea de que los componentes del PCA no son aleatorios, sino estructurados biológicamente.
+
+### 3. Gen asociado a PC6
+
+El gen GIPR presenta una correlación positiva fuerte con PC6 (ρ entre 0.5 y 1).
+
+Esto indica que PC6 parece estar dominado por variación específica de un único gen o muy pocos genes. Sugiere un componente más “específico” o de menor varianza global.
+
+### 4. Asociación negativa con PC4
+
+El gen ROBO1 muestra una correlación negativa fuerte con PC4 (ρ entre −0.5 y −1).
+
+Esto indica que este gen se comporta en dirección opuesta al resto de variables que definen PC4 y que podría representar un eje de contraste biológico donde ROBO1 actúa como marcador inverso.
+
+### 5. Resto de genes
+
+El resto de genes muestran correlaciones débiles o moderadas (ρ entre −0.5 y 0.5) con todos los componentes.
+
+Esto indica que no contribuyen de forma dominante a ningún eje principal y refuerza el hecho de que solo un subconjunto de genes explica la estructura principal del dataset.
+
+### Conclusión global
+
+En conjunto, el heatmap de Spearman revela que la estructura del PCA está impulsada por subconjuntos específicos de genes. PC2 y PC3 están asociados a grupos de genes concretos (CADM2–NTRK2 y CREBRF–UBR2, respectivamente), mientras que PC6 parece capturar una señal más específica dominada por GIPR. Por otro lado, PC4 muestra una relación inversa con ROBO1, sugiriendo un eje de variación con comportamiento opuesto para este gen. El resto de genes presentan correlaciones débiles, indicando que no contribuyen de forma predominante a los principales ejes de variabilidad.
+
 ## Análisis de expresión génica por terciles del PCA
 
   En este bloque se compara la expresión génica según los patrones de variabilidad identificados en el PCA, clasificando a los individuos en terciles (bajo, medio, alto) para PC1, PC2 y PC3.
@@ -1148,12 +1197,234 @@ ggplot(pca_df, aes(x = PC1, y = PC2, color = IMC_cat)) +
 
 
 
-## Modelo de regresión logística con PCA´s
+## Modelo de regresión logística
+
+Se van a construir tres modelos de regresión logística binaria para evaluar la asociación entre los terciles de los componentes principales del PCA y la presencia de sobrepeso (IMC ≥ 25), incorporando progresivamente variables sociodemográficas y clínicas. La bondad global de ajuste de los modelos se evaluará mediante pruebas de razón de verosimilitudes comparando cada modelo con el modelo nulo.
 
 
-``{r}
-empezar aqui con el código
-``
+```{r Regresión Logística}
+
+# Variable binaria: sobrepeso (IMC ≥ 25)
+
+simpson_df$sobrepeso <- ifelse(simpson_df$imc_kg_m2 >= 25, 1, 0)
+
+# Unifico datasets
+
+df_modelo <- cbind(
+  simpson_df[, c("sobrepeso", "edad_anios", "sexo",
+                 "colesterol_total_mg_dl", "glucosa_mg_dl")],
+  df_final[, c("PC1_t", "PC2_t", "PC3_t")]
+)
+
+# Asegurar que son factores
+
+df_modelo$sexo <- as.factor(df_modelo$sexo)
+df_modelo$PC1_t <- as.factor(df_modelo$PC1_t)
+df_modelo$PC2_t <- as.factor(df_modelo$PC2_t)
+df_modelo$PC3_t <- as.factor(df_modelo$PC3_t)
+
+# Referencias (T1 como referencia)
+
+df_modelo$PC1_t <- relevel(df_modelo$PC1_t, ref = "T1")
+df_modelo$PC2_t <- relevel(df_modelo$PC2_t, ref = "T1")
+df_modelo$PC3_t <- relevel(df_modelo$PC3_t, ref = "T1")
+
+# Tomar en cuenta también la variable sexo Femenino como referencia
+
+df_modelo$sexo <- relevel(df_modelo$sexo, ref = "Femenino")
+
+# Generar el primer modelo para la regresión (solo PCA)
+
+modelo_1 <- glm(
+  sobrepeso ~ PC1_t + PC2_t + PC3_t,
+  family = binomial(link = "logit"),
+  data = df_modelo
+)
+
+summary(modelo_1)
+
+# Generar el segundo modelo: sociodemográfico
+
+modelo_2 <- glm(
+  sobrepeso ~ PC1_t + PC2_t + PC3_t +
+    edad_anios + sexo,
+  family = binomial(link = "logit"),
+  data = df_modelo
+)
+
+# Generar el tercer modelo: incluyendo metabolitos
+
+modelo_3 <- glm(
+  sobrepeso ~ PC1_t + PC2_t + PC3_t +
+    edad_anios + sexo +
+    colesterol_total_mg_dl + glucosa_mg_dl,
+  family = binomial(link = "logit"),
+  data = df_modelo
+)
+
+# Extraer OR, IC95 y p-value
+
+extraer_or <- function(modelo) {
+  
+  tidy(modelo, exponentiate = TRUE, conf.int = TRUE) %>%
+    mutate(
+      OR_IC = paste0(
+        round(estimate, 2),
+        " (",
+        round(conf.low, 2),
+        " - ",
+        round(conf.high, 2),
+        ")"
+      ),
+      p_value = signif(p.value, 3)
+    ) %>%
+    select(term, OR_IC, p_value)
+}
+
+# Crear tablas individuales de resultados de la regresión
+
+tabla_m1 <- extraer_or(modelo_1)
+tabla_m2 <- extraer_or(modelo_2)
+tabla_m3 <- extraer_or(modelo_3)
+
+# Creo tabla final
+
+tabla_final <- tabla_m1 %>%
+  rename(M1_OR = OR_IC, M1_p = p_value) %>%
+  full_join(
+    tabla_m2 %>% rename(M2_OR = OR_IC, M2_p = p_value),
+    by = "term"
+  ) %>%
+  full_join(
+    tabla_m3 %>% rename(M3_OR = OR_IC, M3_p = p_value),
+    by = "term"
+  )
+
+tabla_final <- tabla_final %>%
+  mutate(
+    term = case_when(
+      grepl("PC1_t", term) ~ "Terciles PC1",
+      grepl("PC2_t", term) ~ "Terciles PC2",
+      grepl("PC3_t", term) ~ "Terciles PC3",
+      grepl("edad", term) ~ "Edad",
+      grepl("sexo", term) ~ "Sexo",
+      grepl("colesterol", term) ~ "Colesterol total",
+      grepl("glucosa", term) ~ "Glucosa",
+      TRUE ~ term
+    )
+  )
+
+write.csv(tabla_final, file ="Tabla Regresion.csv", sep = " ", na = "-", dec = ".")
+
+# Generar modelo nulo y comparación
+
+modelo_nulo <- glm(
+  sobrepeso ~ 1,
+  data = df_modelo,
+  family = binomial(link = "logit")
+)
+
+anova(
+  modelo_nulo,
+  modelo_1,
+  test = "Chisq"
+)
+
+anova(
+  modelo_nulo,
+  modelo_2,
+  test = "Chisq"
+)
+
+anova(
+  modelo_nulo,
+  modelo_3,
+  test = "Chisq"
+)
+
+```
+
+## *Interpretación de la regresión logística*
+
+### Modelo 1: asociación cruda (PCA sin ajuste)
+
+El primer modelo incluyó únicamente los terciles de los tres primeros componentes principales.
+
+No se observaron asociaciones estadísticamente significativas entre los componentes del PCA y el sobrepeso.
+
+Estimaciones:
+
+PC1 (T3 vs T1): OR = 1.18 (IC95%: 0.25–5.61), p = 0.835
+PC2 (T3 vs T1): OR = 0.35 (IC95%: 0.05–2.35), p = 0.279
+PC3 (T2 vs T1): OR = 2.35 (IC95%: 0.46–11.98), p = 0.305
+
+Comparación con modelo nulo:
+
+La comparación global con el modelo nulo no mostró mejora significativa:
+
+χ² = 6.16
+gl = 6
+p = 0.405
+
+El modelo no mejora significativamente respecto a un modelo sin predictores.
+
+### Modelo 2: ajuste sociodemográfico
+
+Se incluyeron edad y sexo además de los componentes principales.
+
+Las variables sociodemográficas tampoco mostraron asociación significativa con el sobrepeso en este modelo.
+
+Edad: OR = 1.02 (IC95%: 0.98–1.07), p = 0.340
+Sexo masculino: OR = 1.24 (IC95%: 0.18–8.33), p = 0.828
+
+Los componentes PCA continuaron sin asociaciones significativas.
+
+Comparación con modelo nulo:
+
+χ² = 11.83
+gl = 8
+p = 0.159
+
+Mejora parcial del modelo, pero sin significación estadística global.
+
+### Modelo 3: ajuste clínico completo
+
+El modelo final incluyó, además de los componentes PCA, edad, sexo, colesterol total y glucosa.
+
+En este modelo:
+
+  Los componentes del PCA no mostraron asociación significativa con sobrepeso.
+  
+  La glucosa mostró asociación significativa positiva:
+    
+    Glucosa: OR = 1.21 (IC95%: 1.01–1.45), p = 0.037
+    
+  El colesterol total mostró una tendencia inversa no significativa:
+  
+    OR = 0.95 (IC95%: 0.90–1.01), p = 0.106
+    
+Comparación con modelo nulo:
+
+El modelo completo mostró una mejora significativa respecto al modelo nulo:
+
+χ² = 19.62
+gl = 10
+p = 0.033*
+
+El modelo completo aporta información estadísticamente significativa para explicar el sobrepeso.
+
+### 4. Conclusión global
+
+En conjunto, los resultados muestran que los componentes principales derivados del PCA no presentan asociación significativa con la presencia de sobrepeso en ninguno de los modelos evaluados.
+
+Sin embargo:
+
+  El ajuste progresivo mejora la capacidad explicativa del modelo.
+  El modelo completo es estadísticamente significativo frente al modelo nulo.
+  La variable glucosa aparece como el principal factor asociado positivamente con el sobrepeso.
+
+Esto sugiere que, aunque la estructura global de expresión génica resumida por PCA no discrimina el sobrepeso, ciertos marcadores metabólicos individuales pueden tener mayor relevancia explicativa.
+
 
 
 
