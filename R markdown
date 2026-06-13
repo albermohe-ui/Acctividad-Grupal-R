@@ -464,13 +464,8 @@ contribucion_pc2
 # ===============================
 # 1. LIBRERÍAS
 # ===============================
-
-# gtsummary para tablas descriptivas
-# dplyr para manipulación de datos
 # readr para lectura de CSV
 
-library(gtsummary)
-library(dplyr)
 library(readr)
 
 
@@ -478,14 +473,7 @@ library(readr)
 # 2. CARGA DE DATOS
 # ===============================
 
-setwd("C:/Users/alber/Desktop/UNIR 26 -27/Primer cuatrimestre/Estadística y R para las Ciencias de la Salud/Actividades/Actividad grupal/Trabajos")
-
-datos <- read_csv("Base_de_datos_Los_Simpson_completa.csv")
-
-
-# Exploración inicial para comprobar estructura
-summary(datos)
-str(datos)
+datos <- read_csv("Base de datos Los Simpson completa.csv")
 
 
 # ===============================
@@ -494,6 +482,13 @@ str(datos)
 
 datos <- datos %>%
   select(-...1, -nombre, -orden)
+
+#Renombrar variables
+
+datos <- datos %>%
+  dplyr::rename(
+    edad_años = edad_anios
+  )
 
 
 # ===============================
@@ -533,19 +528,19 @@ datos <- datos %>%
   
   # Corrección de variables clave
   mutate(
-    sexo = recode(sexo,
+    sexo = dplyr::recode(sexo,
                   "M" = "Masculino",
                   "F" = "Femenino",
                   "male" = "Masculino",
                   "female" = "Femenino"
     ),
     
-    estado_civil = recode(estado_civil,
+    estado_civil = dplyr::recode(estado_civil,
                           "casado" = "Casado",
                           "soltero" = "Soltero"
     ),
     
-    etnicidad = recode(etnicidad,
+    etnicidad = dplyr::recode(etnicidad,
                        "Caucásica" = "Caucásico"
     )
   ) %>%
@@ -561,12 +556,12 @@ datos <- datos %>%
       TRUE ~ situacion_vivienda
     ),
     
-    enfermedades = recode(enfermedades,
+    enfermedades = dplyr::recode(enfermedades,
                           "Enfermedades cardiovasculares" = "Enfermedad cardiovascular",
                           "Diabetes tipo 2" = "Diabetes"
     ),
     
-    trastornos = recode(trastornos,
+    trastornos = dplyr::recode(trastornos,
                         "No" = "Ninguno"
     )
   ) %>%
