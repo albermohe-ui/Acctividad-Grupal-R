@@ -1,1 +1,1167 @@
+---
+title: "Resolución Actividad 3 máster Bioinformática UNIR (2026)"
+author: "Equipo R"
+date: "`r Sys.Date()`"
+output: html_document
+---
 
+## INTRODUCCIÓN
+
+  En el presente ejercicio abordaremos un análisis bioestadístico aplicado a la expresión de 37 genes en una cohorte de 59 individuos, integrando variables sociodemográficas, clínicas y de estilo de vida procedentes de un dataset estructurado. [mubio02_act3 | Word]
+  El objetivo es explorar la estructura de los datos, evaluar la distribución de las variables génicas y estudiar posibles patrones subyacentes mediante técnicas de reducción de la dimensionalidad, así como su relación con variables de interés clínico. [mubio02_act3 | Word]
+En concreto, se llevará a cabo:
+
+- **La evaluación de la normalidad** de las variables de expresión génica
+- **La reducción de dimensionalidad mediante análisis de componentes principales (PCA)**
+- **La visualización y agrupación de variables e individuos (clustering)**
+- **La generación de representaciones gráficas**, incluyendo **heatmaps** de correlación y otras visualizaciones exploratorias
+- **El análisis descriptivo**, mediante **tablas de los datos crudos y de las variables transformadas**
+- La construcción de un **modelo predictivo mediante regresión logística**
+
+  A lo largo de cada apartado, se detallarán los procedimientos empleados y se interpretarán los resultados obtenidos, valorando su significado estadístico y su posible relevancia en el contexto biológico y clínico del problema estudiado.
+
+
+## Métodos preliminares
+
+**Habilitación CRAN**
+
+```{r CRAN, echo=TRUE, results='markup'}
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+```
+
+
+**Preparación del entorno**
+  Declaramos el entorno de trabajo en la carpeta concreta del equipo del creador e instalamos los paquetes y librerías que van a ser necesarios para las operaciones.
+  
+
+```{r Establecimiento entorno}
+
+## ============================================================================
+### 1. ESTABLECIMIENTO DEL ESPACIO DE TRABAJO
+### ============================================================================
+
+setwd("C:/Users/alber/Desktop/UNIR 26 -27/Primer cuatrimestre/Estadística y R para las Ciencias de la Salud/Actividades/Actividad grupal/Trabajos")
+
+## Compruebo que la ruta sea correcta.
+
+getwd()
+
+## Reviso los archivos disponibles en la carpeta.
+
+list.files()
+
+```
+
+
+```{r Preparación del entorno}
+### ============================================================================
+### 0. LIMPIEZA DEL ENTORNO, REPRODUCIBILIDAD Y PAQUETES
+### ============================================================================
+
+## Limpio el entorno para evitar que objetos creados anteriormente
+## interfieran con los resultados de esta actividad.
+
+rm(list = ls())
+
+## Fijo una semilla para que los procedimientos aleatorios,
+## como el clustering, puedan reproducirse.
+
+set.seed(2026)
+
+## Evito que R utilice notación científica cuando no sea necesaria.
+
+options(scipen = 999)
+
+## Defino los paquetes que utilizaré durante el análisis.
+
+paquetes <- c(
+  "dplyr",
+  "tidyr",
+  "ggplot2",
+  "janitor",
+  "factoextra",
+  "FactoMineR",
+  "pheatmap",
+  "gtsummary",
+  "flextable",
+  "officer",
+  "broom",
+  "car",
+  "pROC", 
+  "readr",
+  "ggrepel"
+)
+
+## Compruebo qué paquetes todavía no están instalados.
+
+paquetes_nuevos <- paquetes[
+  !paquetes %in% rownames(installed.packages())
+]
+
+## Instalo solamente los paquetes que falten.
+
+if (length(paquetes_nuevos) > 0) {
+  install.packages(paquetes_nuevos, dependencies = TRUE)
+}
+
+## Cargo las librerías necesarias.
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(janitor)
+library(factoextra)
+library(FactoMineR)
+library(pheatmap)
+library(gtsummary)
+library(flextable)
+library(officer)
+library(broom)
+library(car)
+library(pROC)
+library(readr)
+library(ggrepel)
+
+```
+
+
+
+**Carga de datos**
+
+  Tomamos los datos desde el dataset aportado, sito en el espacio de trabajo declarado
+
+```{r Carga de los datos}
+
+
+### ============================================================================
+### 1. CARGA Y EXPLORACIÓN INICIAL DE LA BASE DE DATOS
+### ============================================================================
+
+## Cargo la base de datos en formato CSV.
+
+simpson_df <- read_csv("Base_de_datos_Los_Simpson_completa.csv")
+
+
+
+# Exploración inicial para comprobar estructura
+summary(simpson_df)
+
+
+## Reviso las dimensiones de la base de datos.
+
+dim(simpson_df)
+
+## Reviso la estructura general de las variables.
+
+str(simpson_df)
+
+## Reviso los nombres de todas las variables.
+
+names(simpson_df)
+
+## Reviso las primeras filas del dataset.
+
+head(simpson_df)
+
+## Obtengo un resumen general de las variables.
+
+summary(simpson_df)
+
+### ============================================================================
+### 2. CONTROL DE CALIDAD INICIAL
+### ============================================================================
+
+## Compruebo el número total de valores perdidos en la base de datos.
+
+sum(is.na(simpson_df))
+
+is_na <- (is.na(simpson_df))
+
+is_na
+
+## Calculo los valores perdidos por variable.
+
+na_por_variable <- data.frame(
+  Variable = names(simpson_df),
+  NA_total = colSums(is.na(simpson_df)),
+  Porcentaje_NA = round(colMeans(is.na(simpson_df)) * 100, 2)
+)
+
+na_por_variable
+
+
+## Muestro únicamente las variables que presentan valores perdidos.
+
+na_por_variable_con_na <- na_por_variable %>%
+  filter(NA_total > 0)
+
+na_por_variable_con_na
+
+## Compruebo si existen registros duplicados.
+
+sum(duplicated(simpson_df))
+
+
+```
+
+
+## Inspección de datos crudos
+
+  En el sigguiente apartado, Se lleva a cabo un proceso de depuración que incluye la eliminación de variables irrelevantes, la corrección de inconsistencias en variables categóricas y la conversión adecuada de las variables a su tipo correspondiente. Asimismo, se identifican de forma automática las variables génicas y se clasifican las variables continuas según su normalidad mediante el test de Shapiro-Wilk.
+Como resultado, se obtiene un conjunto de datos limpio y estructurado, a partir del cual se genera una tabla descriptiva resumen, aplicando los estadísticos más adecuados en función de la distribución de cada variable.
+
+```{r Tabla datos crudos}
+
+
+# ===============================
+# 1. ELIMINAR VARIABLES INNECESARIAS
+# ===============================
+
+datos <- simpson_df %>%
+  select(-...1, -nombre, -orden)
+
+
+# ===============================
+# 2. IDENTIFICACIÓN AUTOMÁTICA DE GENES
+# ===============================
+
+# Detecta variables con nombres en mayúsculas (genes)
+
+genes <- names(datos) %>%
+  grep("^[A-Z0-9]+$", ., value = TRUE)
+
+
+# ===============================
+# 3. VARIABLES CONTINUAS EXTRA
+# ===============================
+
+# Variables que deben tratarse como numéricas aunque parezcan categóricas
+
+vars_continuas_extra <- c(
+  "legumbres_g_d", "aceites_g_d", "hdl_mg_dl",
+  "albumina_g_dl", "bilirrubina_mg_dl",
+  "frutos_secos_g_d", "lacteos_g_d",
+  "af_moderada_h_semana", "af_intensa_h_semana"
+)
+
+
+# ===============================
+# 4. LIMPIEZA GLOBAL DEL DATASET
+# ===============================
+
+datos <- datos %>%
+  
+  # Limpieza general de texto
+  mutate(across(where(is.character), ~trimws(.))) %>%      # elimina espacios
+  mutate(across(where(is.character), ~na_if(., ""))) %>%   # elimina NA
+  
+  
+  # Corrección de variables clave
+  mutate(
+    sexo = dplyr::recode(sexo,
+                  "M" = "Masculino",
+                  "F" = "Femenino",
+                  "male" = "Masculino",
+                  "female" = "Femenino"
+    ),
+    
+    estado_civil = dplyr::recode(estado_civil,
+                          "casado" = "Casado",
+                          "soltero" = "Soltero"
+    ),
+    
+    etnicidad = dplyr::recode(etnicidad,
+                       "Caucásica" = "Caucásico"
+    )
+  ) %>%
+  
+  
+  # Unificación automática de categorías
+  mutate(
+    
+    situacion_vivienda = case_when(
+      grepl("prop", situacion_vivienda, ignore.case = TRUE) ~ "Propia",
+      grepl("alq|apart", situacion_vivienda, ignore.case = TRUE) ~ "Alquiler",
+      grepl("famil", situacion_vivienda, ignore.case = TRUE) ~ "Familiar",
+      TRUE ~ situacion_vivienda
+    ),
+    
+    enfermedades = dplyr::recode(enfermedades,
+                          "Enfermedades cardiovasculares" = "Enfermedad cardiovascular",
+                          "Diabetes tipo 2" = "Diabetes"
+    ),
+    
+    trastornos = dplyr::recode(trastornos,
+                        "No" = "Ninguno"
+    )
+  ) %>%
+  
+  
+  # Conversión a numérico de genes y variables continuas especiales
+  mutate(across(all_of(c(genes, vars_continuas_extra)), as.numeric)) %>%
+  
+  
+  # Conversión correcta a factor de variables categóricas
+  mutate(across(c(
+    sexo, estado_civil, nivel_educativo, ocupacion,
+    lugar_residencia, etnicidad, situacion_vivienda,
+    composicion_familiar, enfermedades, medicamento,
+    tabaco, alcohol, ansiedad, depresion, trastornos
+  ), ~factor(.))) %>%
+  
+  
+  # Eliminación de niveles vacíos en factores
+  mutate(across(where(is.factor), droplevels)) %>%
+  
+  
+  # Eliminación de filas problemáticas mínimas
+  filter(!is.na(sexo))
+
+
+# ===============================
+# 5. IDENTIFICAR VARIABLES NUMÉRICAS CLÍNICAS
+# ===============================
+
+numeric_vars <- datos %>%
+  select(where(is.numeric))
+
+numeric_vars_no_genes <- numeric_vars %>%
+  select(-all_of(genes))
+
+
+# ===============================
+# 6. TEST DE NORMALIDAD (Shapiro-Wilk)
+# ===============================
+
+check_normality <- function(x) {
+  
+  x <- na.omit(x)
+  
+  if (is.numeric(x) && length(x) >= 10 && length(unique(x)) > 5) {
+    p <- shapiro.test(x)$p.value
+    return(p > 0.05)
+  } else {
+    return(FALSE)
+  }
+}
+
+
+# Clasificación de variables
+
+normal_vars <- names(numeric_vars_no_genes)[
+  sapply(numeric_vars_no_genes, check_normality)
+]
+
+non_normal_vars <- setdiff(names(numeric_vars_no_genes), normal_vars)
+
+
+# ===============================
+# 7. TABLA DESCRIPTIVA FINAL
+# ===============================
+
+tabla <- datos %>%
+  tbl_summary(
+    
+    # Forzar tipo continuo en genes y variables mal interpretadas
+    type = list(
+      all_of(c(genes, vars_continuas_extra)) ~ "continuous"
+    ),
+    
+    
+    # Estadísticos personalizados
+    statistic = list(
+      all_of(genes) ~ "{median} ({p25}, {p75})",
+      all_of(normal_vars) ~ "{mean} ({sd})",
+      all_of(non_normal_vars) ~ "{median} ({p25}, {p75})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    
+    digits = all_continuous() ~ 2
+  ) %>%
+  
+  # Añadir número de observaciones
+  add_n() %>%
+  
+  # Resaltar etiquetas
+  bold_labels()
+
+
+# ===============================
+# 8. MOSTRAR RESULTADO
+# ===============================
+
+tabla
+
+```
+
+## Análisis de componentes principales
+
+  A continuación ...
+
+
+```{r actividad3_proyecto_transversal}
+
+
+### ============================================================================
+### 1. SELECCIÓN DE VARIABLES DE EXPRESIÓN GÉNICA
+### ============================================================================
+
+## Compruebo la posición de los genes ADCY3 y UHMK1 dentro del dataset.
+
+which(names(simpson_df) == "ADCY3")
+which(names(simpson_df) == "UHMK1")
+
+## Selecciono todas las variables génicas comprendidas entre ADCY3 y UHMK1.
+
+genes_simpson <- names(simpson_df)[
+  which(names(simpson_df) == "ADCY3"):
+    which(names(simpson_df) == "UHMK1")
+]
+
+## Compruebo cuántos genes se han seleccionado.
+
+length(genes_simpson)
+
+## Muestro los nombres de los genes seleccionados.
+
+genes_simpson
+
+## Compruebo los valores perdidos en las variables de expresión génica.
+
+colSums(is.na(simpson_df[, genes_simpson]))
+
+## Calculo el total de valores perdidos en el conjunto de genes.
+
+sum(is.na(simpson_df[, genes_simpson]))
+
+### ============================================================================
+### 2. COMPROBACIÓN DEL FORMATO DE LOS GENES
+### ============================================================================
+
+## Compruebo el tipo de dato de las variables génicas seleccionadas.
+
+sapply(simpson_df[, genes_simpson], class)
+
+## Compruebo si todas las variables génicas son numéricas.
+
+sapply(simpson_df[, genes_simpson], is.numeric)
+
+## Convierto las variables génicas a formato numérico por seguridad.
+
+for (gen in genes_simpson) {
+  simpson_df[[gen]] <- as.numeric(simpson_df[[gen]])
+}
+
+## Vuelvo a comprobar que todas las variables sean numéricas.
+
+sapply(simpson_df[, genes_simpson], is.numeric)
+
+### ============================================================================
+### 3. TEST DE NORMALIDAD DE LOS GENES
+### ============================================================================
+
+## Aplico el test de Shapiro-Wilk a cada variable génica.
+## Guardo el estadístico W, el valor p y la interpretación.
+
+normalidad_genes <- data.frame(
+  Variable = genes_simpson,
+  Estadistico_W = NA,
+  Valor_p = NA,
+  Interpretacion = NA
+)
+
+for (i in seq_along(genes_simpson)) {
+  
+  prueba <- shapiro.test(simpson_df[[genes_simpson[i]]])
+  
+  normalidad_genes$Estadistico_W[i] <- prueba$statistic
+  
+  normalidad_genes$Valor_p[i] <- prueba$p.value
+  
+  normalidad_genes$Interpretacion[i] <- ifelse(
+    prueba$p.value < 0.05,
+    "Distribución no normal",
+    "Distribución compatible con normalidad"
+  )
+}
+
+## Creo una versión formateada para visualizar los resultados.
+
+normalidad_genes_resultado <- normalidad_genes %>%
+  mutate(
+    Estadistico_W = round(Estadistico_W, 3),
+    Valor_p = format(
+      Valor_p,
+      scientific = TRUE,
+      digits = 3
+    )
+  )
+
+normalidad_genes_resultado
+
+## Resumo cuántos genes presentan distribución normal y cuántos no.
+
+table(normalidad_genes$Interpretacion)
+
+### ============================================================================
+### 4. PREPARACIÓN DE LOS DATOS PARA EL PCA
+### ============================================================================
+
+## Creo un dataframe únicamente con las variables de expresión génica.
+
+datos_genes <- simpson_df[, genes_simpson]
+
+## Compruebo las dimensiones y la estructura del conjunto de genes.
+
+dim(datos_genes)
+str(datos_genes)
+
+## Confirmo que no existan valores perdidos antes de realizar el PCA.
+
+sum(is.na(datos_genes))
+
+### ============================================================================
+### 5. ANÁLISIS DE COMPONENTES PRINCIPALES
+### ============================================================================
+
+## Realizo el PCA con las variables génicas.
+## Centro y escalo las variables para que todas tengan el mismo peso
+## independientemente de su media y variabilidad original.
+
+pca_genes <- prcomp(
+  datos_genes,
+  center = TRUE,
+  scale. = TRUE
+)
+
+## Reviso un resumen general del PCA.
+
+summary(pca_genes)
+
+## Reviso los elementos guardados dentro del objeto PCA.
+
+names(pca_genes)
+
+
+### ============================================================================
+### 6. VARIANZA EXPLICADA Y TABLA PCA COMPONENTES Y R2
+### ============================================================================
+
+## Extraigo los autovalores, el porcentaje de varianza explicada
+## y la varianza acumulada de cada componente principal.
+
+varianza_pca <- get_eigenvalue(pca_genes)
+
+varianza_pca
+
+## Creo una tabla completa con la información del PCA.
+
+tabla_varianza_pca <- data.frame(
+  Componente = rownames(varianza_pca),
+  Autovalor = varianza_pca$eigenvalue,
+  R2 = varianza_pca$variance.percent,
+  R2_acumulado = varianza_pca$cumulative.variance.percent
+)
+
+## Redondeo los resultados para facilitar su lectura.
+
+tabla_varianza_pca <- tabla_varianza_pca %>%
+  mutate(
+    Autovalor = round(Autovalor, 3),
+    R2 = round(R2, 2),
+    R2_acumulado = round(R2_acumulado, 2)
+  )
+
+tabla_varianza_pca
+
+## Creo la tabla solicitada con las primeras seis componentes.
+
+tabla_pca_componentes_6 <- tabla_varianza_pca %>%
+  slice(1:6) %>%
+  select(
+    Componente,
+    R2
+  )
+
+tabla_pca_componentes_6
+
+## Convierto la tabla a flextable para mejorar su presentación.
+
+tabla_componentes_flex <- flextable(tabla_pca_componentes_6) %>%
+  autofit() %>%
+  fontsize(size = 10, part = "all")
+
+tabla_componentes_flex
+
+## Guardo la tabla como imagen PNG.
+
+save_as_image(
+  tabla_componentes_flex,
+  path = "tabla_pca_componentes_R2.png"
+)
+
+## También la guardo como CSV para poder compartir los datos en Git.
+
+write.csv(
+  tabla_pca_componentes_6,
+  "tabla_pca_componentes_R2.csv",
+  row.names = FALSE
+)
+
+### ============================================================================
+### 7. EXTRACCIÓN DE SCORES DE LAS PRIMERAS SEIS COMPONENTES
+### ============================================================================
+
+## Extraigo los scores de las primeras seis componentes principales.
+
+scores_pca <- as.data.frame(
+  pca_genes$x[, 1:6]
+)
+
+## Reviso las primeras filas de los scores.
+
+head(scores_pca)
+
+## Añado los scores al dataframe original.
+
+simpson_df <- cbind(
+  simpson_df,
+  scores_pca
+)
+
+## Compruebo que PC1 a PC6 se hayan añadido correctamente.
+
+names(simpson_df)
+
+### ============================================================================
+### 8. GRÁFICO DE VARIANZA EXPLICADA
+### ============================================================================
+
+## Represento el porcentaje de varianza explicado por cada componente principal.
+## Este gráfico me ayuda a identificar qué componentes concentran más información.
+
+grafico_varianza <- fviz_eig(
+  pca_genes,
+  addlabels = TRUE,
+  ylim = c(0, 100)
+) +
+  ggtitle("Varianza explicada por los componentes principales") +
+  theme_minimal()
+
+grafico_varianza
+
+### ============================================================================
+### 9. COORDENADAS, COS2, CONTRIBUCIONES Y TABLA PCA CARGAS
+### ============================================================================
+
+## Extraigo las coordenadas, la calidad de representación
+## y las contribuciones de las variables génicas en el PCA.
+
+variables_pca <- get_pca_var(pca_genes)
+
+## Reviso las coordenadas de los genes.
+
+head(variables_pca$coord)
+
+## Reviso la calidad de representación de los genes.
+
+head(variables_pca$cos2)
+
+## Reviso las contribuciones de los genes.
+
+head(variables_pca$contrib)
+
+## Convierto las coordenadas de las variables en una tabla.
+## Estas coordenadas representan las cargas de cada gen.
+
+tabla_pca_cargas <- as.data.frame(variables_pca$coord) %>%
+  tibble::rownames_to_column("Variable") %>%
+  select(
+    Variable,
+    Dim.1,
+    Dim.2,
+    Dim.3,
+    Dim.4,
+    Dim.5,
+    Dim.6
+  ) %>%
+  rename(
+    PC1 = Dim.1,
+    PC2 = Dim.2,
+    PC3 = Dim.3,
+    PC4 = Dim.4,
+    PC5 = Dim.5,
+    PC6 = Dim.6
+  ) %>%
+  mutate(
+    across(
+      PC1:PC6,
+      ~ round(.x, 3)
+    )
+  )
+
+tabla_pca_cargas
+
+## Convierto la tabla a flextable para mejorar su presentación.
+
+tabla_cargas_flex <- flextable(tabla_pca_cargas) %>%
+  autofit() %>%
+  fontsize(size = 8, part = "all")
+
+tabla_cargas_flex
+
+## Guardo la tabla como imagen PNG.
+
+save_as_image(
+  tabla_cargas_flex,
+  path = "tabla_pca_cargas.png"
+)
+
+## También la guardo como CSV para compartirla y reutilizarla.
+
+write.csv(
+  tabla_pca_cargas,
+  "tabla_pca_cargas.csv",
+  row.names = FALSE
+)
+
+### ============================================================================
+### 10. VISUALIZACIÓN DE VARIABLES SEGÚN COS2
+### ============================================================================
+
+## Represento las variables génicas en el espacio de PC1 y PC2.
+## El color indica la calidad de representación de cada variable.
+
+grafico_variables_cos2 <- fviz_pca_var(
+  pca_genes,
+  axes = c(1, 2),
+  col.var = "cos2",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  repel = TRUE
+) +
+  ggtitle("Variables génicas según su calidad de representación") +
+  theme_minimal()
+
+grafico_variables_cos2
+
+### ============================================================================
+### 11. CONTRIBUCIÓN DE LOS GENES A LOS COMPONENTES
+### ============================================================================
+
+## Muestro los genes que más contribuyen a la primera componente.
+
+contribucion_pc1 <- fviz_contrib(
+  pca_genes,
+  choice = "var",
+  axes = 1,
+  top = 15
+) +
+  ggtitle("Contribución de los genes a PC1") +
+  theme_minimal()
+
+contribucion_pc1
+
+## Muestro los genes que más contribuyen a la segunda componente.
+
+contribucion_pc2 <- fviz_contrib(
+  pca_genes,
+  choice = "var",
+  axes = 2,
+  top = 15
+) +
+  ggtitle("Contribución de los genes a PC2") +
+  theme_minimal()
+
+contribucion_pc2
+```
+
+## Análisis de expresión génica por terciles del PCA
+
+  En este bloque se compara la expresión génica según los patrones de variabilidad identificados en el PCA, clasificando a los individuos en terciles (bajo, medio, alto) para PC1, PC2 y PC3.
+  Se integran estos grupos con los datos originales y se generan tablas descriptivas por componente, utilizando mediana y rango intercuartílico. Las diferencias entre grupos se evalúan mediante el test de Kruskal-Wallis.
+  Como resultado, se obtiene una tabla combinada que permite identificar genes asociados a los principales ejes de variación del conjunto de datos, lo que permite identificar genes cuya expresión se asocia a los patrones de variabilidad capturados por el PCA.
+
+
+```{r Tabla comparación terciles PCAs}
+
+### ============================================================================
+### 1. CREACIÓN DE TERCILES DEL PCA
+### ============================================================================
+
+## Clasificamos cada individuo en “bajo / medio / alto” según su posición en PC1, PC2 y PC3
+
+## Extraemos los scores del PCA (coordenadas de cada individuo en los componentes)
+
+scores_pca <- as.data.frame(pca_genes$x)
+
+## Creamos terciles (T1, T2, T3) para cada componente principal
+## Dividimos los datos en 3 grupos según percentiles 33% y 66%
+
+scores_pca <- scores_pca %>%
+  mutate(
+    
+    PC1_t = cut(
+      PC1,
+      breaks = quantile(PC1, probs = c(0, 1/3, 2/3, 1)),
+      include.lowest = TRUE,
+      labels = c("T1", "T2", "T3")
+    ),
+    
+    PC2_t = cut(
+      PC2,
+      breaks = quantile(PC2, probs = c(0, 1/3, 2/3, 1)),
+      include.lowest = TRUE,
+      labels = c("T1", "T2", "T3")
+    ),
+    
+    PC3_t = cut(
+      PC3,
+      breaks = quantile(PC3, probs = c(0, 1/3, 2/3, 1)),
+      include.lowest = TRUE,
+      labels = c("T1", "T2", "T3")
+    )
+  )
+
+
+### ============================================================================
+### 2. UNIÓN DE DATOS ORIGINALES Y TERCILES DEL PCA
+### ============================================================================
+
+# Usamos expresión génica original (sin transformar) y agrupamos por terciles del PCA
+# Nos quedamos solo con los genes + los grupos de PCA
+
+df_final <- cbind(
+  simpson_df[, genes_simpson],   # datos originales de genes
+  scores_pca[, c("PC1_t", "PC2_t", "PC3_t")]  # terciles
+)
+
+# Conversión explícita de genes a numéricos
+
+df_final <- df_final %>%
+  mutate(across(all_of(genes_simpson), ~ as.numeric(as.character(.))))
+
+str(df_final)
+
+### ============================================================================
+### 3. TABLA DESCRIPTIVA - PC1
+### ============================================================================
+
+tabla_PC1 <- df_final %>%
+  
+  # Eliminamos otros grupos para que no interfieran
+  
+  select(-PC2_t, -PC3_t) %>%
+  
+  # Creamos la tabla
+  
+  tbl_summary(
+    by = PC1_t,   # Agrupamos por terciles
+    
+    type = all_of(genes_simpson) ~ "continuous",
+    
+    # Usamos mediana y rango intercuartílico
+    # (porque la mayoría de genes no siguen distribución normal)
+    
+    statistic = all_continuous() ~ "{median} ({p25} - {p75})",
+    
+    # Número de decimales
+    
+    digits = all_continuous() ~ 1
+  ) %>%
+  
+  # Añadimos comparación estadística (Kruskal-Wallis)
+  
+  add_p(test = all_continuous() ~ "kruskal.test")
+
+
+
+### ============================================================================
+### 4. TABLA DESCRIPTIVA - PC2
+### ============================================================================
+
+tabla_PC2 <- df_final %>%
+  
+  select(-PC1_t, -PC3_t) %>%
+  
+  tbl_summary(
+    by = PC2_t,
+    type = all_of(genes_simpson) ~ "continuous",
+    statistic = all_continuous() ~ "{median} ({p25} - {p75})",
+    digits = all_continuous() ~ 1
+  ) %>%
+  
+  add_p(test = all_continuous() ~ "kruskal.test")
+
+
+### ============================================================================
+### 5. TABLA DESCRIPTIVA - PC3
+### ============================================================================
+
+tabla_PC3 <- df_final %>%
+  
+  select(-PC1_t, -PC2_t) %>%
+  
+  tbl_summary(
+    by = PC3_t,
+    type = all_of(genes_simpson) ~ "continuous",
+    statistic = all_continuous() ~ "{median} ({p25} - {p75})",
+    digits = all_continuous() ~ 1
+  ) %>%
+  
+  add_p(test = all_continuous() ~ "kruskal.test")
+
+
+### ============================================================================
+### 6. COMBINAR TABLAS
+### ============================================================================
+
+tabla_combinada <- tbl_merge(
+  tbls = list(tabla_PC1, tabla_PC2, tabla_PC3),
+  tab_spanner = c("**PC1**", "**PC2**", "**PC3**")
+)
+
+
+### ============================================================================
+### 7. MOSTRAR TABLA COMBINADA
+### ============================================================================
+
+tabla_combinada
+
+
+```
+
+
+## Agrupación de genes por PCA
+
+  Se realiza un análisis de agrupación de las variables génicas en función de su comportamiento en el espacio definido por el PCA. Para ello, se aplica un clustering k-means sobre las coordenadas de los genes en los tres primeros componentes principales.
+  Los grupos obtenidos se representan gráficamente en el plano PC1–PC2, incorporando etiquetas de los genes y elipses de confianza  al 95% para facilitar la interpretación de la separación entre clusters.
+  Como resultado, se identifican conjuntos de genes con patrones de variación similares dentro de la estructura global de los datos.
+
+
+```{r Clúster PCA variables - genes}
+
+
+### ============================================================================
+### 1. COORDENADAS DE VARIABLES (GENES) EN EL PCA
+### ============================================================================
+
+coord_genes <- as.data.frame(pca_genes$rotation[, 1:3])
+
+## Añadimos nombre del gen
+
+coord_genes$gene <- rownames(coord_genes)
+
+
+### ============================================================================
+### 2. CLUSTERING (3 CLUSTERS)
+### ============================================================================
+
+set.seed(123)  # Para reproducibilidad
+
+kmeans_res <- kmeans(coord_genes[, 1:3], centers = 3)
+
+## Añadimos cluster a la tabla
+
+coord_genes$cluster <- as.factor(kmeans_res$cluster)
+
+
+### ============================================================================
+### 3. VISUALIZACIÓN
+### ============================================================================
+
+
+ggplot(coord_genes, aes(x = PC1, y = PC2, color = cluster)) +
+  
+  geom_point(size = 3) +
+  
+  geom_text_repel(aes(label = gene), size = 3) +
+  
+  stat_ellipse(type = "norm", level = 0.95, linewidth = 1) +  
+  
+  theme_minimal() +
+  
+  labs(
+    title = "Clustering de genes (PCA)",
+    x = "PC1",
+    y = "PC2",
+    color = "Cluster"
+  )
+
+
+```
+
+## Agrupación de individuos por PCA
+
+  A continuación, vamos a realizar un análisis de agrupación de los individuos en función de sus puntuaciones en los tres primeros componentes principales del PCA, utilizando el algoritmo k-means.
+  Los grupos obtenidos se representan en el plano PC1–PC2, incorporando elipses de confianza para visualizar la separación entre clusters.
+  Como resultado, se identifican perfiles de individuos con patrones de expresión génica similares dentro de la estructura global del dataset, consistentes en tres grupos con perfiles de expresión diferenciados, mostrando separación principalmente a lo largo del eje PC1.
+
+
+```{r Clúster PCA individuos}
+
+# Ahora vamos a agrupar individuos, no genes 
+
+### ============================================================================
+### 1. SCORES DEL PCA (INDIVIDUOS)
+### ============================================================================
+
+# Extraemos los scores de los individuos Simpson
+
+scores_ind <- as.data.frame(pca_genes$x[, 1:3])
+
+
+### ============================================================================
+### 2. CLUSTERING DE INDIVIDUOS
+### ============================================================================
+
+# Agrupamos por el método k-means, indicando tres centros (grupos)
+
+set.seed(123)
+
+kmeans_ind <- kmeans(scores_ind, centers = 3)
+
+## Añadimos cluster
+
+scores_ind$cluster <- as.factor(kmeans_ind$cluster)
+
+
+### ============================================================================
+### 3. VISUALIZACIÓN
+### ============================================================================
+
+
+ggplot(scores_ind, aes(x = PC1, y = PC2, color = cluster)) +
+  
+  geom_point(size = 3) +
+  
+  stat_ellipse(level = 0.95, linewidth = 1) +   # Elipses
+  
+  theme_minimal() +
+  
+  labs(
+    title = "Clustering de individuos basado en PCA",
+    x = "PC1",
+    y = "PC2",
+    color = "Cluster"
+  )
+
+
+```
+
+## Distribución por IMC en el PCA
+
+  Se analiza la distribución de los individuos en el espacio del PCA en función de su categoría de índice de masa corporal (IMC), clasificada en normal, sobrepeso y obesidad.
+  Los individuos se representan en el plano PC1–PC2, incorporando coloreado por categoría y elipses de dispersión para evaluar posibles patrones de agrupación. La proximidad entre puntos indica similitud en los perfiles de expresión génica. Si las categorías de IMC aparecen agrupadas, podría sugerir una relación entre la expresión génica y estado nutricional.
+  El resultado permite explorar la posible relación entre los perfiles de expresión génica y el estado ponderal de los individuos. 
+  El agrupamiento de puntos y la superposición de elipses sugiere la ausencia de una clara separación entre los perfiles de  expresión génica en función del estado de IMC
+
+
+```{r Gráfico IMC - PCAs}
+
+
+### ============================================================================
+### 1. CREACIÓN DE VARIABLE IMC CATEGÓRICA
+### ============================================================================
+
+# Se crean categorías clínicas de IMC
+simpson_df$IMC_cat <- cut(
+  simpson_df$imc_kg_m2,
+  breaks = c(-Inf, 24.9, 29.9, Inf),
+  labels = c("Normal", "Sobrepeso", "Obesidad")
+)
+
+# Se comprueba la distribución de pacientes por categoría
+table(simpson_df$IMC_cat)
+
+### ============================================================================
+### 2. PREPARACIÓN PARA VISUALIZACIÓN
+### ============================================================================
+
+# Se extraen las coordenadas de los individuos en el PCA
+pca_df <- as.data.frame(pca_genes$x)
+
+# Se añaden variables clínicas y de identificación
+pca_df$IMC_cat <- simpson_df$IMC_cat
+pca_df$nombre <- simpson_df$nombre
+
+### ============================================================================
+### 3. VISUALIZACIÓN DEL PCA SEGÚN IMC
+### ============================================================================
+
+# Se representa el plano formado por PC1 y PC2
+# Los individuos se colorean según su categoría de IMC
+
+ggplot(pca_df, aes(x = PC1, y = PC2, color = IMC_cat)) +
+  geom_point(size = 3, alpha = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "PCA de expresión génica en pacientes",
+    subtitle = "Distribución de individuos según categorías de IMC",
+    x = "Componente Principal 1",
+    y = "Componente Principal 2",
+    color = "Categoría IMC"
+  ) +
+  scale_color_manual(values = c(
+    "Normal" = "#4CAF50",
+    "Sobrepeso" = "#FFC107",
+    "Obesidad" = "#F44336"
+  ))
+
+### ============================================================================
+### 4. VISUALIZACIÓN DEL PCA CON ELIPSES POR IMC
+### ============================================================================
+
+# En este gráfico añadimos elipses para representar la dispersión de cada grupo
+# de IMC en el espacio definido por PC1 y PC2 (ayudan a visualizar
+# si los grupos están separados o solapados)
+
+ggplot(pca_df, aes(x = PC1, y = PC2, color = IMC_cat)) +
+  
+  # Puntos individuales (cada paciente)
+  geom_point(size = 3, alpha = 0.8) +
+  
+  # Elipses por grupo de IMC
+  stat_ellipse(aes(group = IMC_cat), linetype = 2, size = 1) +
+  
+  # Tema limpio
+  theme_minimal() +
+  
+  # Etiquetas
+  labs(
+    title = "PCA de expresión génica en pacientes",
+    subtitle = "Distribución por IMC con elipses de dispersión",
+    x = "Componente Principal 1",
+    y = "Componente Principal 2",
+    color = "Categoría IMC"
+  ) +
+  
+  # Colores personalizados
+  scale_color_manual(values = c(
+    "Normal" = "#4CAF50",
+    "Sobrepeso" = "#FFC107",
+    "Obesidad" = "#F44336"
+  ))
+
+
+
+```
+
+
+
+## Modelo de regresión logística con PCA´s
+
+
+``{r}
+empezar aqui con el código
+``
+
+
+
+## CONCLUSIONES
+
+**(tentativas)**
+  En este estudio se ha realizado un análisis integral de la expresión génica combinando técnicas descriptivas, PCA y métodos de agrupación.
+  El PCA ha permitido identificar los principales patrones de variabilidad, mientras que la estratificación por terciles y el clustering han evidenciado la existencia de perfiles diferenciados de individuos y genes.
+  La incorporación de variables clínicas, como el IMC, ha facilitado la exploración de posibles relaciones entre expresión génica y características fenotípicas.
+  En conjunto, los resultados muestran el potencial de estas herramientas para el análisis exploratorio y la generación de hipótesis en estudios bioestadísticos.
+**(tentativas)**
